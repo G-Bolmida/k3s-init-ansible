@@ -1,0 +1,4 @@
+# handlers file for prep role
+- name: Reboot Raspberry Pi
+  reboot:
+  listen: "reboot"

@@ -1,0 +1,97 @@
+---
+- name: Prep Pis for Clustering.
+  hosts: cluster
+  become: yes
+
+  tasks:  
+  - name: Set hostname.
+    command: hostnamectl set-hostname {{ node_hostname }}
+
+  - name: Gather package information.
+    package_facts:
+      manager: apt
+  
+  - name: Remove lxd snap.
+    community.general.snap:
+      name: lxd
+      state: absent
+    when: "'snapd' in ansible_facts.packages"
+
+  - name: Remove core18 snap.
+    community.general.snap:
+      name: core18
+      state: absent
+    when: "'snapd' in ansible_facts.packages"
+
+  - name: Remove snapd snap.
+    community.general.snap:
+      name: snapd
+      state: absent
+    when: "'snapd' in ansible_facts.packages"
+
+  - name: Remove and purge snapd.
+    apt:
+      name: snapd
+      state: absent
+      purge: yes
+    when: "'snapd' in ansible_facts.packages"
+
+  - name: Remove uneeded dependencies.
+    apt:
+      autoremove: yes
+
+  - name: Upgrade the OS.
+    apt:
+      upgrade: dist
+      update_cache: yes
+
+  - name: Enable container features and decrease GPU memory use on ubuntu.
+    replace:
+      path: /boot/firmware/cmdline.txt
+      regexp: '^([\w](?!.*\b{{ item }}\b).*)$'
+      replace: '\1 {{ item }}'
+    with_items:
+    - "cgroup_enable=cpuset"
+    - "cgroup_memory=1"
+    - "cgroup_enable=memory"
+    - "gpu_mem=16"
+    when: 
+      - node_arch == "arm64"
+
+  - name: Set timezone to America/New_York (Change this if in another time zone)
+    community.general.timezone:
+      name: America/New_York
+
+  - name: Reboot Pi.
+    reboot:
+      reboot_timeout: 3600
+
+  - name: Download and install K3s to controller1.
+    shell:
+      cmd: curl -sfL https://get.k3s.io | K3S_TOKEN="{{ k3s_token }}" sh -s - server --cluster-init --disable servicelb --cluster-domain geo.cluster 
+    when:
+      - node_role == "first_controller"
+
+  - name: Create Control Plane.
+    shell:
+      cmd: curl -sfL https://get.k3s.io | K3S_TOKEN="{{ k3s_token }}" sh -s - server --server https://{{ primary_controller_ip }}:6443 --no-deploy servicelb --cluster-domain geo.cluster
+    when:
+      - node_role == "controller"
+
+  - name: Install K3s on all worker nodes.
+    shell:
+      cmd: curl -sfL https://get.k3s.io | K3S_URL="https://{{ primary_controller_ip }}:6443" K3S_TOKEN="{{ k3s_token }}" sh -
+    when: 
+      - node_role == "worker"
+
+  - name: Expose config file.
+    ansible.builtin.lineinfile:
+      path: /etc/environment
+      line: KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+  - name: Store Kubeconfig.
+    ansible.builtin.fetch:
+      src: /etc/rancher/k3s/k3s.yaml
+      dest: ./kubeconfig
+    when: 
+      - node_role == "first_controller"

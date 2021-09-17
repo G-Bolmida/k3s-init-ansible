@@ -1,0 +1,31 @@
+---
+# tasks file for prep
+
+- name: Copy repositories template to Pis
+  template:
+    src: repositories
+    dest: /etc/apk/repositories
+
+- name: Install prereq packages
+  apk:
+    name: nano,vim,git,curl,openssl,wget,ca-certificates,ufw
+    state: latest
+    update_cache: yes
+
+- name: Enable IPv4 forwarding
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    state: present
+    reload: yes
+
+- name: Enable IPv6 forwarding
+  sysctl:
+    name: net.ipv6.conf.all.forwarding
+    value: "1"
+    state: present
+    reload: yes
+
+- name: Enable cgroups
+  ansible.builtin.command: "rc-update add cgroups default"
+  notify: "reboot"

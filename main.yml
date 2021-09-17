@@ -1,0 +1,6 @@
+---
+- name: Prep Pis for Clustering.
+  hosts: testing
+  become: no
+  roles:
+  - prep
